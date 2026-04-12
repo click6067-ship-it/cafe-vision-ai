@@ -22,9 +22,42 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 
 from tech_tab import render_tech_tab
+from design_dna import css_for, chrome_for_before, home_button_html, mode_switcher_html
 
 ROOT = Path(__file__).parent
 DATA = ROOT / "data"
+
+# 3가지 모드 — 로컬에서 ?mode=before|a|b 로 비교
+VALID_MODES = {"before", "a", "b"}
+
+
+def current_mode() -> str:
+    raw = st.query_params.get("mode", "before")
+    if isinstance(raw, list):       # streamlit 구버전 호환
+        raw = raw[0] if raw else "before"
+    return raw if raw in VALID_MODES else "before"
+
+
+def mode_colors() -> tuple[str, str]:
+    """현재 모드의 (accent, secondary) hex — Plotly/이미지 등 CSS 변수 닿지 않는 경로용."""
+    m = current_mode()
+    if m == "a":
+        return ("#22d3ee", "#fbbf24")   # cyan-400, amber-400
+    if m == "b":
+        return ("#fb923c", "#facc15")   # orange-400, yellow-400
+    return ("#FF6B35", "#FFC857")       # 변경 전 (원본 오렌지/앰버)
+
+
+def _hex_to_rgb(h: str) -> str:
+    h = h.lstrip("#")
+    return f"{int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)}"
+
+
+def mode_zone_colors() -> dict[str, str]:
+    """주문구역 색을 모드 accent 로 치환한 ZONE_COLORS.
+       A안: cyan(좌석 블루와 구분), B안: orange-400, 변경 전: 원본 오렌지."""
+    acc, _ = mode_colors()
+    return {"좌석A": "#4F8BF9", "좌석B": "#85B7EB", "주문구역": acc}
 
 st.set_page_config(
     page_title="Cafe Vision AI", page_icon="☕",
@@ -506,7 +539,177 @@ button[data-testid="stExpandSidebarButton"]:hover path {
 
 
 def inject_css():
-    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+    """모드별 CSS 주입.
+       before → 기존 CUSTOM_CSS + chrome(오렌지 토큰)
+       a/b    → design_dna.css_for(mode) 단독 (DNA 본체 + chrome)
+    """
+    mode = current_mode()
+    if mode == "before":
+        st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+        st.markdown(chrome_for_before(), unsafe_allow_html=True)
+    else:
+        st.markdown(css_for(mode), unsafe_allow_html=True)
+
+
+def inject_chrome():
+    """Home 버튼 + 모드 스위처 렌더 (항상 표시)."""
+    mode = current_mode()
+    st.markdown(mode_switcher_html(mode), unsafe_allow_html=True)
+    st.markdown(home_button_html(href="#"), unsafe_allow_html=True)
+
+
+def inject_emoji_strip():
+    """A·B안: 페이지 전체 텍스트 노드에서 이모지 및 재생 컨트롤 기호를 제거.
+       re-render 대응을 위해 MutationObserver 로 childList 변경 감지.
+       변경 전 모드엔 주입하지 않음."""
+    if current_mode() == "before":
+        return
+    st.components.v1.html(
+        """
+        <script>
+        (function() {
+          // Extended_Pictographic + 자주 쓰는 재생/상태 기호(▶⏸⏭⏮↺◀⏯⏹●○↗↘✓✗)
+          const EMOJI_RE = /(\\p{Extended_Pictographic}|[\\u25B6\\u23F8\\u23ED\\u23EE\\u23EF\\u21BA\\u21BB\\u25C0\\u23F9\\u25CF\\u25CB\\u2197\\u2198\\u2713\\u2717\\u2709\\u2328\\u2699])\\uFE0F?/gu;
+          const doc = (window.parent && window.parent.document) || document;
+          let busy = false;
+
+          function stripNode(node) {
+            if (node.nodeType === 3) {
+              const v = node.nodeValue;
+              if (EMOJI_RE.test(v)) {
+                const cleaned = v.replace(EMOJI_RE, '')
+                                 .replace(/^[\\s·]+/, '')
+                                 .replace(/\\s{2,}/g, ' ');
+                if (cleaned !== v) node.nodeValue = cleaned;
+              }
+            } else if (node.nodeType === 1) {
+              const tag = node.tagName;
+              if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'IFRAME') return;
+              for (const c of node.childNodes) stripNode(c);
+            }
+          }
+
+          function run() {
+            if (busy) return;
+            busy = true;
+            try { stripNode(doc.body); } catch (e) { /* noop */ }
+            busy = false;
+          }
+
+          run();
+          [150, 400, 900, 1800].forEach(ms => setTimeout(run, ms));
+
+          try {
+            const obs = new MutationObserver(() => run());
+            obs.observe(doc.body, { childList: true, subtree: true });
+          } catch (e) { /* same-origin 제약 시 silent */ }
+        })();
+        </script>
+        """,
+        height=0,
+    )
+
+
+def inject_slider_recolor():
+    """Streamlit 1.56 은 emotion(css-in-js) 으로 primaryColor 를 <style> 태그에 주입.
+       inline style 만 바꾸면 slider filled, tech-tab 진행 색 등이 그대로 오렌지.
+       여기선 3층 모두 치환:
+         1) 모든 <style> 태그 textContent 내 rgb(255,107,53) → accent
+         2) 모든 cssRules 의 style 속성 값 내 주황색 → accent
+         3) 모든 [style] inline 속성 내 주황색 → accent
+       MutationObserver + debounce 로 Streamlit rerender/drag 에 대응."""
+    if current_mode() == "before":
+        return
+    acc, sec = mode_colors()
+    st.components.v1.html(
+        f"""
+        <script>
+        (function() {{
+          const ACCENT    = {acc!r};
+          const SECONDARY = {sec!r};
+          // 원본 오렌지(#FF6B35 / rgb(255,107,53)) → accent
+          // 원본 앰버  (#FFC857 / rgb(255,200,87)) → secondary
+          const RULES = [
+            [/rgb\\(\\s*255\\s*,\\s*107\\s*,\\s*53\\s*\\)/g, ACCENT],
+            [/#FF6B35/gi,                                    ACCENT],
+            [/rgb\\(\\s*255\\s*,\\s*200\\s*,\\s*87\\s*\\)/g, SECONDARY],
+            [/#FFC857/gi,                                    SECONDARY],
+          ];
+          const HAS = /rgb\\(\\s*255\\s*,\\s*(?:107\\s*,\\s*53|200\\s*,\\s*87)\\s*\\)|#FF6B35|#FFC857/i;
+          const doc = (window.parent && window.parent.document) || document;
+          let busy = false;
+          let timer = null;
+
+          function swap(str) {{
+            let out = str;
+            for (const [r, c] of RULES) out = out.replace(r, c);
+            return out;
+          }}
+
+          function recolor() {{
+            if (busy) return;
+            busy = true;
+            try {{
+              // (1) <style> 태그 텍스트 직접 치환
+              doc.querySelectorAll('style').forEach(s => {{
+                const t = s.textContent;
+                if (t && HAS.test(t)) s.textContent = swap(t);
+              }});
+
+              // (2) cssRules API 로 rule 단위 치환 (emotion insertRule 대비)
+              for (const sheet of doc.styleSheets) {{
+                let rules;
+                try {{ rules = sheet.cssRules; }} catch (e) {{ continue; }}
+                if (!rules) continue;
+                for (const rule of rules) {{
+                  if (!rule.style) continue;
+                  for (let i = 0; i < rule.style.length; i++) {{
+                    const prop = rule.style[i];
+                    const val = rule.style.getPropertyValue(prop);
+                    if (val && HAS.test(val)) {{
+                      rule.style.setProperty(prop, swap(val),
+                        rule.style.getPropertyPriority(prop));
+                    }}
+                  }}
+                }}
+              }}
+
+              // (3) inline style 치환 (BaseWeb thumb 등 동적 inline)
+              doc.querySelectorAll('[style]').forEach(el => {{
+                const s = el.getAttribute('style');
+                if (s && HAS.test(s)) el.setAttribute('style', swap(s));
+              }});
+            }} catch (e) {{ /* silent */ }}
+            busy = false;
+          }}
+
+          function schedule() {{
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(recolor, 40);
+          }}
+
+          recolor();
+          [100, 300, 800, 1600].forEach(ms => setTimeout(recolor, ms));
+
+          try {{
+            const obs = new MutationObserver(schedule);
+            obs.observe(doc.body, {{
+              attributes: true, childList: true, subtree: true,
+              characterData: true, attributeFilter: ['style']
+            }});
+            // head 의 <style> 도 감시 (emotion 이 여기 rule 주입)
+            if (doc.head) {{
+              const obsHead = new MutationObserver(schedule);
+              obsHead.observe(doc.head, {{
+                childList: true, subtree: true, characterData: true
+              }});
+            }}
+          }} catch (e) {{ /* same-origin 제약 시 silent */ }}
+        }})();
+        </script>
+        """,
+        height=0,
+    )
 
 
 # =============================================================================
@@ -1014,9 +1217,10 @@ def render_zone_chart(stats, i: int, fps: float):
         return
     st.markdown('<div class="section-label">📈 구역별 평균 인원 분포</div>', unsafe_allow_html=True)
     df = pd.DataFrame({"zone": list(zones_avg.keys()), "count": list(zones_avg.values())})
+    zone_map = mode_zone_colors()
     fig = go.Figure(go.Bar(
         x=df["zone"], y=df["count"],
-        marker_color=[ZONE_COLORS.get(z, "#888") for z in df["zone"]],
+        marker_color=[zone_map.get(z, "#888") for z in df["zone"]],
         text=[f"{v:.1f}" for v in df["count"]], textposition="outside",
     ))
     fig.update_layout(
@@ -1148,20 +1352,22 @@ def render_sim_tab(tracking):
     st.caption("13초 실측 데이터 기반 · numpy 확률분포로 하루치 패턴 생성 (seed=42)")
     peak_avg = sum(tracking["per_frame_count"]) / max(1, len(tracking["per_frame_count"]))
     df = simulate_24h(peak_avg)
+    acc, sec = mode_colors()
+    acc_rgb = _hex_to_rgb(acc)
     c1, c2 = st.columns(2)
     with c1:
         fig = px.bar(df, x="hour", y="avg_visitors",
                      color="avg_visitors",
-                     color_continuous_scale=[[0, "#4F8BF9"], [1, "#FF6B35"]])
+                     color_continuous_scale=[[0, "#4F8BF9"], [1, acc]])
         fig.update_layout(title=dict(text="시간대별 평균 방문객", font=dict(size=14)),
                           coloraxis_showscale=False)
         st.plotly_chart(styled_fig(fig), use_container_width=True)
     with c2:
         fig = go.Figure(go.Scatter(
             x=df["hour"], y=df["avg_dwell_min"], mode="lines+markers",
-            line=dict(color="#FF6B35", width=3),
-            marker=dict(size=8, color="#FFC857", line=dict(color="#FF6B35", width=2)),
-            fill="tozeroy", fillcolor="rgba(255,107,53,0.1)",
+            line=dict(color=acc, width=3),
+            marker=dict(size=8, color=sec, line=dict(color=acc, width=2)),
+            fill="tozeroy", fillcolor=f"rgba({acc_rgb},0.1)",
         ))
         fig.update_layout(title=dict(text="시간대별 평균 체류시간 (분)", font=dict(size=14)))
         st.plotly_chart(styled_fig(fig), use_container_width=True)
@@ -1180,7 +1386,7 @@ def render_tracking_tab(tracking):
             rows.append({"track_id": f"Person #{tid}", "zone": zone, "seconds": sec})
     df = pd.DataFrame(rows)
     fig = px.bar(df, x="track_id", y="seconds", color="zone", barmode="stack",
-                 color_discrete_map=ZONE_COLORS)
+                 color_discrete_map=mode_zone_colors())
     fig.update_layout(title=dict(text="누적 체류시간 분포 (초)", font=dict(size=14)))
     st.plotly_chart(styled_fig(fig, 400), use_container_width=True)
 
@@ -1201,6 +1407,9 @@ def main():
     init_state()
     inject_css()
     render_navbar()
+    inject_chrome()
+    inject_slider_recolor()      # A/B 모드에서 slider 오렌지 잔재를 accent 로 치환
+    inject_emoji_strip()         # B 모드에서 이모지/재생 기호 제거
 
     frames_yolo, frames_raw, stats, tracking, zone_stats, insight = load_artifacts()
     render_sidebar(len(frames_yolo))

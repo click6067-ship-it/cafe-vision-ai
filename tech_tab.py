@@ -3,38 +3,144 @@
 인터랙티브 HTML/CSS/JS 위젯 포함.
 """
 from __future__ import annotations
+import re
 import streamlit as st
 import streamlit.components.v1 as components
 
 
+# =============================================================================
+# iframe 위젯 테마 치환
+# iframe 내부 CSS는 부모 page 의 CSS 변수가 닿지 않으므로, 각 위젯을 렌더하기 전
+# 하드코딩된 원본 오렌지/앰버(#FF6B35 / #FFC857)를 현재 모드의 accent/secondary 로 치환.
+#
+# 단, 아래 8곳은 "의미색" 이라 모드 무관 원본 유지:
+#   · IOU .box.b        → Box A(파랑) vs B(오렌지) 구분
+#   · KALMAN .track-dot.pred / .arrow / legend dot → 과거(파랑) vs 예측(오렌지) 대비
+#   · NMS nmsbox#n3     → 4개 후보 박스 구분색
+#   · CONFIDENCE .gauge-fill.orange → 신뢰도 중간 경고(green/orange/red)
+#   · PIPELINE 다이어그램 2개 노드 --accent → 4개 단계 구분색
+# =============================================================================
+def _mode_palette() -> tuple[str, str, str, str]:
+    """(accent_hex, secondary_hex, accent_rgb_triplet, secondary_rgb_triplet)."""
+    try:
+        raw = st.query_params.get("mode", "before")
+        if isinstance(raw, list):
+            raw = raw[0] if raw else "before"
+    except Exception:
+        raw = "before"
+
+    if raw == "a":
+        acc, sec = "#22d3ee", "#fbbf24"
+    elif raw == "b":
+        acc, sec = "#fb923c", "#facc15"
+    else:
+        return ("#FF6B35", "#FFC857", "255,107,53", "255,200,87")
+
+    def _rgb(h: str) -> str:
+        h = h.lstrip("#")
+        return f"{int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)}"
+
+    return acc, sec, _rgb(acc), _rgb(sec)
+
+
+# 의미색 보호 패턴 — 치환 전에 sentinel 로 빼두고 나중에 복원
+_SEMANTIC_PATTERNS = [
+    re.compile(r'\.box\.b\s*\{[^}]*\}'),                                    # IOU
+    re.compile(r'\.track-dot\.pred\s*\{[^}]*\}'),                            # KALMAN 예측점
+    re.compile(r'\.arrow\s*\{[^}]*\}'),                                      # KALMAN 화살표
+    re.compile(r'border:2px dashed #FF6B35'),                                # KALMAN legend 인라인
+    re.compile(r'<div class="nmsbox" id="n3"[\s\S]*?</div>'),                # NMS n3 박스
+    re.compile(r'\.gauge-fill\.orange\s*\{[^}]*\}'),                         # 신뢰도 경고 게이지
+    re.compile(r'style="--accent:#FFC857"'),                                 # PIPELINE 메타데이터 노드
+    re.compile(r'style="--accent:#FF6B35"'),                                 # PIPELINE LLM 노드
+]
+
+
+def _themed(raw: str) -> str:
+    """위젯 HTML/CSS 문자열의 브랜드 오렌지·앰버만 현재 모드로 치환.
+       의미색은 sentinel 로 보호 후 원본 복원. 변경 전 모드는 no-op."""
+    acc, sec, acc_rgb, sec_rgb = _mode_palette()
+    if acc == "#FF6B35":
+        return raw
+
+    stash: dict[str, str] = {}
+
+    def _protect(match: re.Match) -> str:
+        key = f"\x00SEM{len(stash)}\x00"
+        stash[key] = match.group(0)
+        return key
+
+    out = raw
+    for pat in _SEMANTIC_PATTERNS:
+        out = pat.sub(_protect, out)
+
+    # 브랜드 hex
+    for h in ("#FF6B35", "#ff6b35"):
+        out = out.replace(h, acc)
+    for h in ("#FFC857", "#ffc857"):
+        out = out.replace(h, sec)
+    # rgb()
+    for form in ("rgb(255,107,53)", "rgb(255, 107, 53)"):
+        out = out.replace(form, f"rgb({acc_rgb})")
+    for form in ("rgb(255,200,87)", "rgb(255, 200, 87)"):
+        out = out.replace(form, f"rgb({sec_rgb})")
+    # rgba() — 앞부분만 치환 (alpha 유지)
+    for form in ("rgba(255,107,53,", "rgba(255, 107, 53,"):
+        out = out.replace(form, f"rgba({acc_rgb},")
+    for form in ("rgba(255,200,87,", "rgba(255, 200, 87,"):
+        out = out.replace(form, f"rgba({sec_rgb},")
+
+    # 의미색 복원
+    for key, value in stash.items():
+        out = out.replace(key, value)
+    return out
+
+
 SECTION_CSS = """
 <style>
+/* DNA 변수 기반 (design_dna.py 가 먼저 주입되어 --accent 등이 이미 정의됨)
+   변경 전 모드에서도 :root 오렌지 토큰이 주입되어 있어 동일하게 동작 */
+
 .tech-hero {
-  background: linear-gradient(135deg, rgba(79,139,249,0.15) 0%, rgba(255,107,53,0.12) 100%);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 16px; padding: 22px 26px; margin-bottom: 18px;
+  background: linear-gradient(135deg,
+    rgba(var(--accent-rgb, 255,107,53), 0.14) 0%,
+    rgba(var(--secondary-rgb, 255,200,87), 0.08) 100%) !important;
+  border: 1px solid rgba(var(--accent-rgb, 255,107,53), 0.25) !important;
+  border-radius: 16px !important;
+  padding: 24px 28px; margin-bottom: 20px;
 }
-.tech-hero h2 { margin: 0 0 6px 0; font-size: 24px; color: #F5F6F8; font-weight: 700; }
-.tech-hero p { margin: 0; color: #A0A7B4; font-size: 14px; line-height: 1.6; }
+.tech-hero h2 { margin: 0 0 8px 0; font-size: 24px; color: var(--text-primary, #F5F6F8); font-weight: 700; letter-spacing: -0.01em; }
+.tech-hero p  { margin: 0; color: var(--text-body, #A0A7B4); font-size: 14px; line-height: 1.65; }
 
 .concept-card {
-  background: #151A24; border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 12px; padding: 18px 20px; margin-bottom: 14px;
+  background: var(--card-bg, rgba(17,24,39,0.4)) !important;
+  border: 1px solid var(--card-border, rgba(255,255,255,0.06)) !important;
+  border-radius: 12px; padding: 20px 22px; margin-bottom: 14px;
+  box-shadow: 0 0 18px rgba(var(--accent-rgb, 255,107,53), 0.08);
 }
-.concept-title { font-size: 15px; font-weight: 700; color: #FFC857; margin-bottom: 8px; }
-.concept-body { color: #C7CDD8; font-size: 13.5px; line-height: 1.7; }
+.concept-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; font-weight: 700;
+  color: var(--accent, #FFC857) !important;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.concept-body { color: var(--text-body, #C7CDD8); font-size: 13.5px; line-height: 1.75; }
 
 .metaphor {
-  background: rgba(79,139,249,0.08); border-left: 3px solid #4F8BF9;
-  border-radius: 6px; padding: 10px 14px; margin-top: 10px;
-  font-size: 13px; color: #C0C6D2;
+  background: rgba(var(--accent-rgb, 79,139,249), 0.08) !important;
+  border-left: 3px solid var(--accent, #4F8BF9) !important;
+  border-radius: 6px; padding: 12px 16px; margin-top: 12px;
+  font-size: 13px; color: var(--text-body, #C0C6D2);
 }
-.metaphor b { color: #4F8BF9; }
+.metaphor b { color: var(--accent-bright, #4F8BF9) !important; }
 
 .key-formula {
-  background: #0A0D13; font-family: 'JetBrains Mono', monospace;
-  font-size: 13px; color: #7FE5BA; padding: 10px 14px; border-radius: 8px;
-  margin-top: 10px; border: 1px solid rgba(127,229,186,0.15);
+  background: rgba(3,7,18,0.65);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; color: #7FE5BA;
+  padding: 12px 16px; border-radius: 8px;
+  margin-top: 12px; border: 1px solid rgba(127,229,186,0.15);
 }
 </style>
 """
@@ -837,7 +943,7 @@ def render_yolo_section():
             """, unsafe_allow_html=True)
 
     st.markdown('##### 🎬 단계별로 만져보기')
-    components.html(GRID_WIDGET, height=500, scrolling=False)
+    components.html(_themed(GRID_WIDGET), height=500, scrolling=False)
 
     st.markdown('##### 🧮 핵심 수학 4가지')
     c1, c2 = st.columns(2)
@@ -874,10 +980,10 @@ def render_yolo_section():
         """, unsafe_allow_html=True)
 
     st.markdown('##### 🎯 IoU 직접 계산해보기 (슬라이더를 움직여보세요)')
-    components.html(IOU_WIDGET, height=330, scrolling=False)
+    components.html(_themed(IOU_WIDGET), height=330, scrolling=False)
 
     st.markdown('##### 🗳 NMS 시뮬레이션 — "같은 사람에 겹친 상자, 어떻게 하나만 남기는가"')
-    components.html(NMS_WIDGET, height=430, scrolling=False)
+    components.html(_themed(NMS_WIDGET), height=430, scrolling=False)
 
     with st.expander("🎭 YOLO vs YOLO-seg (세그먼테이션)"):
         st.markdown("""
@@ -918,7 +1024,7 @@ def render_bytetrack_section():
         st.markdown("##### 📐 다음 프레임에 어디 있을지 예측")
         c1, c2 = st.columns([3, 2])
         with c1:
-            components.html(KALMAN_WIDGET, height=360, scrolling=False)
+            components.html(_themed(KALMAN_WIDGET), height=360, scrolling=False)
         with c2:
             st.markdown("""
             <div class="concept-card">
@@ -979,13 +1085,13 @@ ID-3 예측      0.01          0.08         0.02
         """, unsafe_allow_html=True)
 
         st.markdown('**📊 신뢰도 게이지 변화 — "앉는 순간 왜 신뢰도가 무너지는가"**')
-        components.html(CONFIDENCE_GAUGE_WIDGET, height=400, scrolling=False)
+        components.html(_themed(CONFIDENCE_GAUGE_WIDGET), height=400, scrolling=False)
 
         st.markdown('**🔗 프레임 간 추적 연결 — "같은 색 = 같은 사람"**')
-        components.html(TRACKING_LINK_WIDGET, height=280, scrolling=False)
+        components.html(_themed(TRACKING_LINK_WIDGET), height=280, scrolling=False)
 
         st.markdown('**📹 프레임 단위 비교 — DeepSORT vs ByteTrack**')
-        components.html(BYTETRACK_WIDGET, height=480, scrolling=False)
+        components.html(_themed(BYTETRACK_WIDGET), height=480, scrolling=False)
 
         st.markdown("""
         <div class="metaphor">
@@ -1026,9 +1132,9 @@ ID-3 예측      0.01          0.08         0.02
 def render_pipeline_section():
     st.markdown('#### 🛠 전체 파이프라인 — 입력부터 인사이트까지')
     st.markdown("##### ⚡ 파이프라인 단계별 하이라이트 (버튼 클릭)")
-    components.html(PIPELINE_HIGHLIGHT_WIDGET, height=300, scrolling=False)
+    components.html(_themed(PIPELINE_HIGHLIGHT_WIDGET), height=300, scrolling=False)
     st.markdown("##### 📋 단계별 입출력 상세")
-    components.html(PIPELINE_DIAGRAM, height=720, scrolling=False)
+    components.html(_themed(PIPELINE_DIAGRAM), height=720, scrolling=False)
 
 
 def render_faq_section():
