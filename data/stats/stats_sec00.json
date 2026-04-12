@@ -1,0 +1,14 @@
+{
+  "second": 0,
+  "person_count": 8,
+  "person_count_max": 8,
+  "zones_avg": {
+    "좌석B": 3.53,
+    "주문구역": 3.0,
+    "좌석A": 1.0
+  },
+  "frame_range": [
+    0,
+    14
+  ]
+}

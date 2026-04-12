@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+
+# Virtualenv (5.8GB — never commit)
+.venv/
+venv/
+env/
+
+# Secrets / env
+.env
+.env.*
+.streamlit/secrets.toml
+
+# Build / packaging artifacts
+dist/
+build/
+*.egg
+repomix-output.xml
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Large intermediate artifacts (regeneratable via preprocess.py)
+# Uncomment these if repo becomes too large:
+# data/frames/
+# data/frames_raw/
+# data/stats/

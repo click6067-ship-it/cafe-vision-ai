@@ -1,0 +1,10 @@
+{
+  "zones": {
+    "좌석B": 34.18,
+    "주문구역": 23.81,
+    "좌석A": 6.58
+  },
+  "total_unique_persons": 25,
+  "total_frames": 200,
+  "fps": 15.038
+}
