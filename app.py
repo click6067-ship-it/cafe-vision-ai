@@ -704,7 +704,6 @@ def render_navbar():
       <div class="navbar-logo">CV</div>
       <div class="navbar-brand">Cafe Vision AI</div>
       <div class="navbar-spacer"></div>
-      <span class="live-badge"><span class="live-dot"></span>LIVE DEMO</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1207,7 +1206,7 @@ def main():
     render_sidebar(len(frames_yolo))
 
     tab1, tab2, tab3, tab4 = st.tabs([
-        "🔴 실시간 분석", "📊 24시간 시뮬레이션", "👤 추적 상세", "🎓 기술 원리"
+        "🔴 실시간 분석", "📊 24시간 시뮬레이션", "👤 체류시간 추적", "🎓 작동 원리"
     ])
     with tab1:
         render_live_tab(frames_yolo, frames_raw, stats, tracking, insight)
