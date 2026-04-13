@@ -22,30 +22,19 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 
 from tech_tab import render_tech_tab
-from design_dna import css_for, chrome_for_before, home_button_html, mode_switcher_html
+from design_dna import css_for, home_button_html
 
 ROOT = Path(__file__).parent
 DATA = ROOT / "data"
 
-# 3가지 모드 — 로컬에서 ?mode=before|a|b 로 비교
-VALID_MODES = {"before", "a", "b"}
-
-
-def current_mode() -> str:
-    raw = st.query_params.get("mode", "before")
-    if isinstance(raw, list):       # streamlit 구버전 호환
-        raw = raw[0] if raw else "before"
-    return raw if raw in VALID_MODES else "before"
+# 디자인 팔레트 — orange-400 / yellow-400 (design-dna §0 모드 B · 같은 가족)
+ACCENT_HEX    = "#fb923c"
+SECONDARY_HEX = "#facc15"
 
 
 def mode_colors() -> tuple[str, str]:
-    """현재 모드의 (accent, secondary) hex — Plotly/이미지 등 CSS 변수 닿지 않는 경로용."""
-    m = current_mode()
-    if m == "a":
-        return ("#22d3ee", "#fbbf24")   # cyan-400, amber-400
-    if m == "b":
-        return ("#fb923c", "#facc15")   # orange-400, yellow-400
-    return ("#FF6B35", "#FFC857")       # 변경 전 (원본 오렌지/앰버)
+    """(accent, secondary) hex — Plotly/이미지 등 CSS 변수 닿지 않는 경로용."""
+    return (ACCENT_HEX, SECONDARY_HEX)
 
 
 def _hex_to_rgb(h: str) -> str:
@@ -54,10 +43,8 @@ def _hex_to_rgb(h: str) -> str:
 
 
 def mode_zone_colors() -> dict[str, str]:
-    """주문구역 색을 모드 accent 로 치환한 ZONE_COLORS.
-       A안: cyan(좌석 블루와 구분), B안: orange-400, 변경 전: 원본 오렌지."""
-    acc, _ = mode_colors()
-    return {"좌석A": "#4F8BF9", "좌석B": "#85B7EB", "주문구역": acc}
+    """주문구역 색을 accent 로. 좌석 A/B 는 파랑 계열 의미색 유지."""
+    return {"좌석A": "#4F8BF9", "좌석B": "#85B7EB", "주문구역": ACCENT_HEX}
 
 st.set_page_config(
     page_title="Cafe Vision AI", page_icon="☕",
@@ -99,471 +86,21 @@ def on_scrub():
 
 
 # =============================================================================
-# CSS
+# CSS · CHROME · THEME REMAP
 # =============================================================================
-CUSTOM_CSS = """
-<style>
-@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css');
-html, body, [class*="css"] { font-family: 'Pretendard Variable', Pretendard, -apple-system, sans-serif; }
-.main .block-container { padding-top: 72px !important; padding-bottom: 3rem; max-width: 1400px; }
-
-/* Navbar: fixed at viewport top, ALWAYS full-width. Sidebar lives below us.
-   pointer-events:none — navbar is decorative, clicks pass through to tabs above (z 2000). */
-.navbar {
-    position: fixed; top: 0; left: 0; right: 0;
-    z-index: 1000;
-    height: 56px; display: flex; align-items: center; gap: 14px;
-    padding: 0 22px;
-    margin: 0;
-    background: rgba(11,14,20,0.85);
-    backdrop-filter: blur(20px) saturate(1.4);
-    -webkit-backdrop-filter: blur(20px) saturate(1.4);
-    border: none; border-bottom: 1px solid rgba(255,255,255,0.08);
-    border-radius: 0;
-    box-shadow: 0 6px 24px rgba(0,0,0,0.3);
-    pointer-events: none;
-}
-.navbar > * { pointer-events: auto; }  /* restore for individual decorative items */
-.navbar::after {
-    content: ''; position: absolute; left: 0; right: 0; bottom: -14px; height: 14px;
-    background: linear-gradient(180deg, rgba(11,14,20,0.35), transparent);
-    pointer-events: none;
-}
-
-/* Sidebar pushed BELOW navbar — no more horizontal overlap with navbar */
-section[data-testid="stSidebar"] {
-    top: 56px !important;
-    height: calc(100vh - 56px) !important;
-    z-index: 900 !important;
-}
-.navbar-logo {
-    width: 30px; height: 30px; border-radius: 8px;
-    background: linear-gradient(135deg, #FF6B35 0%, #FFC857 100%);
-    display: flex; align-items: center; justify-content: center;
-    color: #0B0E14; font-weight: 800; font-size: 12px; letter-spacing: -0.02em;
-    flex-shrink: 0;
-    box-shadow: 0 2px 10px rgba(255,107,53,0.35);
-}
-.navbar-brand {
-    font-size: 14px; font-weight: 700; color: #F5F6F8;
-    letter-spacing: -0.01em; margin-right: 8px; flex-shrink: 0;
-}
-.navbar-spacer { flex: 1; min-width: 0; }
-.live-badge {
-    background: #FF3B3B; color: white; font-size: 10px; font-weight: 700;
-    padding: 5px 10px; border-radius: 6px; letter-spacing: 0.06em;
-    display: inline-flex; align-items: center; gap: 5px; animation: pulse 1.8s infinite;
-    flex-shrink: 0;
-    box-shadow: 0 2px 10px rgba(255,59,59,0.4);
-}
-.live-dot { width: 6px; height: 6px; background: white; border-radius: 50%; }
-@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.55 } }
-
-/* Top-level st.tabs: fixed in navbar band, centered.
-   Strategy: tab-list spans full width + pointer-events:none, individual tab buttons re-enable auto.
-   No transform → no new stacking context competing with navbar. */
-[data-testid="stTabs"] [data-baseweb="tab-list"] {
-    position: fixed !important;
-    top: 10px !important;
-    left: 0 !important;
-    right: 0 !important;
-    z-index: 2147483647 !important;   /* max — nothing ever above */
-    background: transparent !important;
-    border-bottom: none !important;
-    padding: 0 !important;
-    gap: 6px !important;
-    justify-content: center !important;
-    display: flex !important;
-    flex-wrap: nowrap;
-    pointer-events: none !important;  /* empty space passes clicks through */
-}
-/* The tab buttons themselves receive clicks */
-[data-testid="stTabs"] button[role="tab"] {
-    pointer-events: auto !important;
-    cursor: pointer !important;
-    position: relative;
-    z-index: 1;
-}
-[data-testid="stTabs"] button[role="tab"] * { pointer-events: auto !important; }
-[data-testid="stTabs"] button[role="tab"] {
-    font-size: 12.5px !important; font-weight: 600 !important;
-    padding: 6px 14px !important; min-height: 36px !important;
-    border-radius: 8px !important; color: #A0A7B4 !important;
-    background: transparent !important;
-    border: 1px solid transparent !important;
-    transition: all 0.2s !important;
-}
-[data-testid="stTabs"] button[role="tab"]:hover {
-    background: rgba(255,255,255,0.06) !important;
-    color: #F5F6F8 !important;
-    border-color: rgba(255,255,255,0.08) !important;
-}
-[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-    background: linear-gradient(135deg, rgba(255,107,53,0.22), rgba(255,200,87,0.12)) !important;
-    color: #FFC857 !important;
-    border-color: rgba(255,107,53,0.32) !important;
-    box-shadow: 0 2px 10px rgba(255,107,53,0.18) !important;
-}
-[data-testid="stTabs"] [data-baseweb="tab-highlight"],
-[data-testid="stTabs"] [data-baseweb="tab-border"] { display: none !important; }
-
-/* Nested tabs inside any tab-panel: reset to default positioned style */
-[data-testid="stTabs"] [data-baseweb="tab-panel"] [data-testid="stTabs"] [data-baseweb="tab-list"] {
-    position: static !important;
-    top: auto !important; left: auto !important; right: auto !important;
-    transform: none !important;
-    max-width: none !important;
-    margin-top: 0 !important;
-    margin-bottom: 0 !important;
-    background: revert !important;
-    border-bottom: 1px solid rgba(255,255,255,0.08) !important;
-    justify-content: flex-start !important;
-    padding: 0 !important;
-    z-index: auto !important;
-    pointer-events: auto !important;
-}
-[data-testid="stTabs"] [data-baseweb="tab-panel"] [data-testid="stTabs"] button[role="tab"] {
-    background: transparent !important;
-    border: none !important;
-    color: #A0A7B4 !important;
-    border-radius: 0 !important;
-    box-shadow: none !important;
-    min-height: unset !important;
-    padding: 10px 14px !important;
-}
-[data-testid="stTabs"] [data-baseweb="tab-panel"] [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-    background: transparent !important;
-    color: #FFC857 !important;
-    border-bottom: 2px solid #FF6B35 !important;
-}
-
-@media (max-width: 900px) {
-    .navbar { padding: 0 14px; }
-    .navbar-brand { display: none; }
-}
-
-.section-label {
-    font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
-    color: #8B95A5; text-transform: uppercase; margin: 14px 0 8px 0;
-}
-.section-label.major {
-    font-size: 13px; font-weight: 700; letter-spacing: 0.14em;
-    color: #C0C6D2;
-}
-
-.kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 6px 0 16px 0; }
-.kpi {
-    background: #151A24; border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 14px; padding: 16px 18px; transition: transform 0.2s, border-color 0.2s;
-}
-.kpi:hover { transform: translateY(-2px); border-color: rgba(255,107,53,0.4); }
-.kpi-label { font-size: 11px; font-weight: 600; color: #8B95A5; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
-.kpi-value { font-size: 28px; font-weight: 700; color: #F5F6F8; line-height: 1.1; }
-.kpi-unit { font-size: 13px; color: #8B95A5; margin-left: 4px; }
-.kpi-trend { font-size: 12px; margin-top: 6px; font-weight: 500; }
-.trend-up { color: #23C552; }
-.trend-down { color: #FF6B6B; }
-.trend-neutral { color: #8B95A5; }
-
-.video-frame {
-    background: #0E1118; border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 14px; padding: 10px; overflow: hidden;
-}
-.video-caption {
-    font-size: 11px; font-weight: 700; color: #A0A7B4;
-    letter-spacing: 0.12em; text-transform: uppercase;
-    margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
-}
-.video-tag-raw { color: #8B95A5; }
-.video-tag-yolo { color: #FF6B35; }
-.video-frame img { border-radius: 8px; width: 100%; display: block; }
-.video-wrap { position: relative; border-radius: 8px; overflow: hidden; }
-.src-overlay {
-    position: absolute; left: 8px; bottom: 8px;
-    background: rgba(11,14,20,0.82); backdrop-filter: blur(4px);
-    color: #E6E8EB; font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
-    padding: 4px 8px; border-radius: 6px;
-    border: 1px solid rgba(255,255,255,0.1); text-transform: uppercase;
-}
-.fr-overlay {
-    position: absolute; right: 8px; top: 8px;
-    background: rgba(255,107,53,0.85); color: #0B0E14;
-    font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
-    padding: 3px 7px; border-radius: 5px;
-    font-family: 'JetBrains Mono', monospace;
-}
-.video-seekbar {
-    position: absolute; left: 0; right: 0; bottom: 0;
-    height: 3px; background: rgba(0,0,0,0.3);
-}
-.video-seekbar-fill {
-    height: 100%; background: linear-gradient(90deg, #FF6B35 0%, #FFC857 100%);
-    box-shadow: 0 0 6px rgba(255,107,53,0.6);
-    transition: width 0.15s linear;
-}
-
-.status-bar {
-    background: #151A24; border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 10px; padding: 10px 14px; margin: 4px 0 10px 0;
-    color: #8B95A5; font-size: 13px;
-}
-
-/* === Apple-style Plotly chart entrance animations (run on tab-switch render) === */
-/* Container barely-visible fade so the SVG shows as it animates */
-div[data-testid="stPlotlyChart"] { animation: chartFade 0.35s ease-out both; }
-@keyframes chartFade { from { opacity: 0 } to { opacity: 1 } }
-
-/* BAR chart: each bar scales from 0 height at the bottom (Apple-style "rise") */
-div[data-testid="stPlotlyChart"] svg.main-svg g.trace.bars g.point,
-div[data-testid="stPlotlyChart"] svg.main-svg .barlayer g.trace g.point {
-    transform-box: fill-box;
-    transform-origin: 50% 100%;
-    animation: barRise 1.05s cubic-bezier(0.22, 1.08, 0.32, 1) both;
-}
-@keyframes barRise {
-    0%   { transform: scaleY(0); opacity: 0.15; }
-    55%  { opacity: 1; }
-    100% { transform: scaleY(1); opacity: 1; }
-}
-/* Stagger bars L→R (covers up to ~30 bars) */
-svg.main-svg g.trace.bars g.point:nth-child(1) { animation-delay: 0ms; }
-svg.main-svg g.trace.bars g.point:nth-child(2) { animation-delay: 55ms; }
-svg.main-svg g.trace.bars g.point:nth-child(3) { animation-delay: 110ms; }
-svg.main-svg g.trace.bars g.point:nth-child(4) { animation-delay: 165ms; }
-svg.main-svg g.trace.bars g.point:nth-child(5) { animation-delay: 220ms; }
-svg.main-svg g.trace.bars g.point:nth-child(6) { animation-delay: 275ms; }
-svg.main-svg g.trace.bars g.point:nth-child(7) { animation-delay: 330ms; }
-svg.main-svg g.trace.bars g.point:nth-child(8) { animation-delay: 385ms; }
-svg.main-svg g.trace.bars g.point:nth-child(9) { animation-delay: 440ms; }
-svg.main-svg g.trace.bars g.point:nth-child(10) { animation-delay: 495ms; }
-svg.main-svg g.trace.bars g.point:nth-child(11) { animation-delay: 550ms; }
-svg.main-svg g.trace.bars g.point:nth-child(12) { animation-delay: 605ms; }
-svg.main-svg g.trace.bars g.point:nth-child(13) { animation-delay: 660ms; }
-svg.main-svg g.trace.bars g.point:nth-child(14) { animation-delay: 715ms; }
-svg.main-svg g.trace.bars g.point:nth-child(15) { animation-delay: 770ms; }
-svg.main-svg g.trace.bars g.point:nth-child(16) { animation-delay: 825ms; }
-svg.main-svg g.trace.bars g.point:nth-child(17) { animation-delay: 860ms; }
-svg.main-svg g.trace.bars g.point:nth-child(18) { animation-delay: 895ms; }
-svg.main-svg g.trace.bars g.point:nth-child(19) { animation-delay: 930ms; }
-svg.main-svg g.trace.bars g.point:nth-child(20) { animation-delay: 965ms; }
-svg.main-svg g.trace.bars g.point:nth-child(n+21) { animation-delay: 1000ms; }
-
-/* LINE chart: draw stroke left→right */
-div[data-testid="stPlotlyChart"] svg.main-svg g.trace.scatter path.js-line,
-div[data-testid="stPlotlyChart"] svg.main-svg .scatterlayer g.trace > path.js-fill,
-div[data-testid="stPlotlyChart"] svg.main-svg .scatterlayer g.trace > path.js-line {
-    stroke-dasharray: 3000;
-    stroke-dashoffset: 3000;
-    animation: lineDraw 1.6s cubic-bezier(0.22, 1, 0.36, 1) 0.25s forwards;
-}
-@keyframes lineDraw {
-    to { stroke-dashoffset: 0; }
-}
-/* Scatter line markers fade in after line draws */
-div[data-testid="stPlotlyChart"] svg.main-svg g.trace.scatter g.points path {
-    opacity: 0;
-    animation: markerFade 0.4s ease-out 1.5s forwards;
-}
-@keyframes markerFade {
-    to { opacity: 1; }
-}
-
-/* HEATMAP / density: fade + subtle scale */
-div[data-testid="stPlotlyChart"] svg.main-svg g.trace.heatmap,
-div[data-testid="stPlotlyChart"] svg.main-svg .heatmaplayer {
-    transform-box: fill-box;
-    transform-origin: 50% 50%;
-    animation: heatmapFade 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.15s both;
-}
-@keyframes heatmapFade {
-    from { opacity: 0; transform: scale(0.97); }
-    to   { opacity: 1; transform: scale(1); }
-}
-
-/* DataFrame: fade after charts */
-div[data-testid="stDataFrame"],
-div[data-testid="stDataFrameResizable"] {
-    animation: dfFade 0.55s ease-out 0.5s both;
-}
-@keyframes dfFade {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes fadeInUp {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-.celebration {
-    position: relative; width: 100%; height: 0;
-    pointer-events: none; overflow: visible;
-}
-.particle {
-    position: absolute; border-radius: 50%;
-    top: -6px; left: 50%;
-    opacity: 0; will-change: transform, opacity;
-    animation: particleRise 1.9s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
-    animation-delay: var(--delay, 0s);
-    box-shadow: 0 0 10px currentColor;
-}
-@keyframes particleRise {
-    0%   { transform: translate(-50%, 8px) scale(0.4); opacity: 0; }
-    15%  { opacity: 1; }
-    70%  { opacity: 0.85; }
-    100% { transform: translate(calc(-50% + var(--tx)), var(--ty)) scale(0.2); opacity: 0; }
-}
-
-.insight {
-    background: linear-gradient(135deg, #151A24 0%, #1A2233 100%);
-    border: 1px solid rgba(255,107,53,0.25);
-    border-radius: 16px; padding: 22px 26px; margin-top: 18px;
-    animation: fadeInUp 0.6s ease-out;
-}
-.action-row {
-    animation: fadeInUp 0.5s ease-out backwards;
-}
-.action-row:nth-child(2) { animation-delay: 0.15s; }
-.action-row:nth-child(3) { animation-delay: 0.3s; }
-.action-row:nth-child(4) { animation-delay: 0.45s; }
-.insight-head { display: flex; align-items: center; gap: 8px;
-    font-size: 11px; font-weight: 700; color: #FF6B35;
-    letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 12px; }
-.insight-title { font-size: 20px; font-weight: 700; color: #F5F6F8; margin: 0 0 16px 0; line-height: 1.4; }
-.action-row { display: flex; gap: 12px; padding: 14px 16px;
-    background: rgba(255,255,255,0.03); border-radius: 10px;
-    margin-bottom: 8px; align-items: flex-start; }
-.priority-badge { font-size: 10px; font-weight: 700; padding: 4px 9px;
-    border-radius: 6px; letter-spacing: 0.06em; flex-shrink: 0; margin-top: 2px; }
-.pri-urgent { background: rgba(255,59,59,0.2); color: #FF6B6B; border: 1px solid rgba(255,59,59,0.3); }
-.pri-improve { background: rgba(255,185,0,0.15); color: #FFC857; border: 1px solid rgba(255,185,0,0.25); }
-.pri-optimize { background: rgba(35,197,82,0.15); color: #4ADE80; border: 1px solid rgba(35,197,82,0.25); }
-.action-text { color: #E0E4EA; font-size: 14px; line-height: 1.55; }
-.action-impact { color: #8B95A5; font-size: 12px; margin-top: 4px; }
-.insight-summary {
-    margin-top: 14px; padding: 12px 14px;
-    background: rgba(79,139,249,0.08); border-left: 3px solid #4F8BF9;
-    border-radius: 6px; color: #C0C6D2; font-size: 13px; line-height: 1.6;
-}
-
-.log-panel {
-    background: #0A0D13; border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 10px; padding: 12px 14px;
-    font-family: 'JetBrains Mono', 'Courier New', monospace;
-    font-size: 12px; color: #7FE5BA; min-height: 110px; max-height: 160px; overflow-y: auto;
-}
-.log-line { display: block; margin: 2px 0; }
-.log-time { color: #5B6577; margin-right: 8px; }
-.log-stage { color: #FF6B35; font-weight: 600; margin-right: 6px; }
-
-div[data-testid="stProgress"] > div { background: #1A1F2E; }
-div[data-testid="stProgress"] > div > div > div > div {
-    background: linear-gradient(90deg, #FF6B35 0%, #FFC857 100%);
-}
-
-.footer {
-    margin-top: 32px; padding: 18px 22px;
-    background: #0E1118; border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 12px; color: #6B7280; font-size: 11.5px; line-height: 1.7;
-}
-.footer-title { color: #8B95A5; font-weight: 700; font-size: 11px; letter-spacing: 0.1em; margin-bottom: 6px; }
-.footer a { color: #8FB4D8; text-decoration: none; }
-.footer a:hover { text-decoration: underline; }
-
-.sb-footer {
-    margin-top: 20px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.06);
-    color: #6B7280; font-size: 10.5px; line-height: 1.6;
-}
-
-#MainMenu { visibility: hidden; }
-/* Streamlit header: transparent, keep structure so toolbar buttons render */
-header[data-testid="stHeader"] {
-    background: transparent !important;
-    box-shadow: none !important;
-}
-/* Hide only Deploy + hamburger menu — NOT the whole toolbar (stExpandSidebarButton lives there) */
-[data-testid="stAppDeployButton"] { display: none !important; }
-[data-testid="stMainMenuButton"] { display: none !important; }
-footer { visibility: hidden; }
-div[data-testid="stDecoration"] { display: none; }
-
-/* Sidebar re-open handle — thin vertical tab peeking out of the left edge (below navbar).
-   Ref: Linear / Notion / ChatGPT pattern. Subtle idle, expands with icon on hover. */
-button[data-testid="stExpandSidebarButton"] {
-    position: fixed !important;
-    top: 92px !important;
-    left: 0 !important;
-    z-index: 1001 !important;
-    width: 16px !important;
-    height: 64px !important;
-    min-width: 0 !important;
-    padding: 0 !important;
-    background: linear-gradient(135deg, #FF6B35 0%, #FFC857 100%) !important;
-    border: none !important;
-    border-radius: 0 10px 10px 0 !important;
-    box-shadow: 3px 0 14px rgba(255,107,53,0.4) !important;
-    cursor: pointer !important;
-    display: flex !important;
-    visibility: visible !important; opacity: 1 !important;
-    align-items: center !important; justify-content: center !important;
-    overflow: hidden !important;
-    animation: edgeHandlePulse 2.6s ease-in-out infinite !important;
-    transition: width 0.22s cubic-bezier(0.25, 1, 0.5, 1),
-                box-shadow 0.22s ease !important;
-}
-button[data-testid="stExpandSidebarButton"]:hover {
-    width: 34px !important;
-    box-shadow: 5px 0 22px rgba(255,107,53,0.7) !important;
-    animation: none !important;
-}
-@keyframes edgeHandlePulse {
-    0%, 100% { box-shadow: 2px 0 10px rgba(255,107,53,0.3); }
-    50%      { box-shadow: 4px 0 18px rgba(255,107,53,0.7); }
-}
-/* Icon: hidden when collapsed, appears on hover */
-button[data-testid="stExpandSidebarButton"] svg,
-button[data-testid="stExpandSidebarButton"] path {
-    color: #0B0E14 !important;
-    fill: #0B0E14 !important;
-    stroke: #0B0E14 !important;
-    width: 16px !important; height: 16px !important;
-    opacity: 0 !important;
-    transition: opacity 0.2s !important;
-}
-button[data-testid="stExpandSidebarButton"]:hover svg,
-button[data-testid="stExpandSidebarButton"]:hover path {
-    opacity: 1 !important;
-}
-</style>
-"""
-
-
 def inject_css():
-    """모드별 CSS 주입.
-       before → 기존 CUSTOM_CSS + chrome(오렌지 토큰)
-       a/b    → design_dna.css_for(mode) 단독 (DNA 본체 + chrome)
-    """
-    mode = current_mode()
-    if mode == "before":
-        st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
-        st.markdown(chrome_for_before(), unsafe_allow_html=True)
-    else:
-        st.markdown(css_for(mode), unsafe_allow_html=True)
+    """Design DNA CSS (mode B · orange-400/yellow-400) 주입."""
+    st.markdown(css_for("b"), unsafe_allow_html=True)
 
 
 def inject_chrome():
-    """Home 버튼 + 모드 스위처 렌더 (항상 표시)."""
-    mode = current_mode()
-    st.markdown(mode_switcher_html(mode), unsafe_allow_html=True)
+    """Home 버튼 (Apple squircle + rotating conic border)."""
     st.markdown(home_button_html(href="#"), unsafe_allow_html=True)
 
 
 def inject_emoji_strip():
-    """A·B안: 페이지 전체 텍스트 노드에서 이모지 및 재생 컨트롤 기호를 제거.
-       re-render 대응을 위해 MutationObserver 로 childList 변경 감지.
-       변경 전 모드엔 주입하지 않음."""
-    if current_mode() == "before":
-        return
+    """페이지 전체 텍스트 노드에서 이모지 및 재생 컨트롤 기호 제거.
+       re-render 대응을 위해 MutationObserver 로 childList 변경 감지."""
     st.components.v1.html(
         """
         <script>
@@ -611,15 +148,13 @@ def inject_emoji_strip():
 
 
 def inject_slider_recolor():
-    """Streamlit 1.56 은 emotion(css-in-js) 으로 primaryColor 를 <style> 태그에 주입.
-       inline style 만 바꾸면 slider filled, tech-tab 진행 색 등이 그대로 오렌지.
-       여기선 3층 모두 치환:
-         1) 모든 <style> 태그 textContent 내 rgb(255,107,53) → accent
-         2) 모든 cssRules 의 style 속성 값 내 주황색 → accent
-         3) 모든 [style] inline 속성 내 주황색 → accent
-       MutationObserver + debounce 로 Streamlit rerender/drag 에 대응."""
-    if current_mode() == "before":
-        return
+    """Streamlit 1.56 은 emotion(css-in-js) 으로 config.toml primaryColor 를 <style> 에 주입.
+       그 결과 slider filled track · toggle on 등 일부 요소에 원본 오렌지가 남음.
+       여기선 3층을 모두 치환해 design DNA orange-400 / yellow-400 로 통일:
+         1) <style> 태그 textContent 내 rgb(255,107,53) / #FF6B35 → accent
+         2) cssRules.style (emotion insertRule 대비)
+         3) [style] inline attribute (BaseWeb 동적 inline · linear-gradient 포함)
+       MutationObserver + debounce 로 rerender · drag 에 대응."""
     acc, sec = mode_colors()
     st.components.v1.html(
         f"""

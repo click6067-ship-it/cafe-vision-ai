@@ -21,26 +21,8 @@ import streamlit.components.v1 as components
 #   · PIPELINE 다이어그램 2개 노드 --accent → 4개 단계 구분색
 # =============================================================================
 def _mode_palette() -> tuple[str, str, str, str]:
-    """(accent_hex, secondary_hex, accent_rgb_triplet, secondary_rgb_triplet)."""
-    try:
-        raw = st.query_params.get("mode", "before")
-        if isinstance(raw, list):
-            raw = raw[0] if raw else "before"
-    except Exception:
-        raw = "before"
-
-    if raw == "a":
-        acc, sec = "#22d3ee", "#fbbf24"
-    elif raw == "b":
-        acc, sec = "#fb923c", "#facc15"
-    else:
-        return ("#FF6B35", "#FFC857", "255,107,53", "255,200,87")
-
-    def _rgb(h: str) -> str:
-        h = h.lstrip("#")
-        return f"{int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)}"
-
-    return acc, sec, _rgb(acc), _rgb(sec)
+    """(accent_hex, secondary_hex, accent_rgb, secondary_rgb) — Mode B 고정."""
+    return ("#fb923c", "#facc15", "249,115,22", "250,204,21")
 
 
 # 의미색 보호 패턴 — 치환 전에 sentinel 로 빼두고 나중에 복원

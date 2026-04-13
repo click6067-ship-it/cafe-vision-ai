@@ -27,26 +27,10 @@ from __future__ import annotations
 
 
 # =============================================================================
-# MODE VARIABLES
+# DESIGN TOKEN — Mode B (같은 가족 · orange-400 / yellow-400)
 # =============================================================================
-_VARS_A = """
+_VARS = """
 :root {
-  /* Mode A · Original (cyan / amber) */
-  --accent:         #22d3ee;           /* cyan-400  · 제목/활성 라벨 */
-  --accent-bright:  #67e8f9;           /* cyan-300  · 활성 버튼 텍스트 */
-  --accent-deep:    #06b6d4;           /* cyan-500  · 히트맵/호버 */
-  --accent-rgb:     6, 182, 212;
-  --accent-light-rgb: 34, 211, 238;
-
-  --secondary:      #fbbf24;           /* amber-400 · 결과값/강조 수치 */
-  --secondary-rgb:  251, 191, 36;
-  --secondary-deep: #b45309;           /* amber-800 · 보조 카드 액센트 */
-}
-"""
-
-_VARS_B = """
-:root {
-  /* Mode B · 같은 가족 (orange / yellow) */
   --accent:         #fb923c;           /* orange-400 */
   --accent-bright:  #fdba74;           /* orange-300 */
   --accent-deep:    #f97316;           /* orange-500 */
@@ -1151,27 +1135,6 @@ _CHROME_BODY = r"""
 }
 """
 
-# 변경 전 모드에서 chrome(+tech tab SECTION_CSS) 를 렌더하기 위한 최소 토큰
-# 원본 오렌지/앰버 팔레트 그대로
-_CHROME_BEFORE_VARS = """
-:root {
-  --accent:         #FF6B35;
-  --accent-bright:  #FFC857;
-  --accent-rgb:     255, 107, 53;
-  --secondary:      #FFC857;
-  --secondary-rgb:  255, 200, 87;
-  --card-bg:        #151A24;
-  --card-border:    rgba(255,255,255,0.08);
-  --text-primary:   #F5F6F8;
-  --text-body:      #A0A7B4;
-  --text-muted:     #8B95A5;
-  --glow-card:      0 0 18px rgba(255,107,53,0.12);
-  --glow-premium:   0 0 28px rgba(255,107,53,0.18),
-                    0 8px 28px rgba(0,0,0,0.45);
-}
-"""
-
-
 # =============================================================================
 # 어셈블
 # =============================================================================
@@ -1183,16 +1146,9 @@ _FONT_IMPORT = (
 )
 
 
-def css_for(mode: str) -> str:
-    """mode: 'a' | 'b' → DNA 본체 + chrome 포함 완성된 <style> 블록.
-       @import 는 스타일 블록 최상단에 와야 유효."""
-    vars_block = _VARS_B if mode == "b" else _VARS_A
-    return f"<style>{_FONT_IMPORT}\n{vars_block}\n{_BODY}\n{_CHROME_BODY}</style>"
-
-
-def chrome_for_before() -> str:
-    """변경 전 모드: Home 버튼 + 모드 스위처만 추가 주입 (기존 오렌지 토큰 사용)."""
-    return f"<style>{_CHROME_BEFORE_VARS}\n{_CHROME_BODY}</style>"
+def css_for(mode: str = "b") -> str:
+    """Design DNA + chrome 을 담은 <style> 블록. mode 인자는 호환성 위해 유지."""
+    return f"<style>{_FONT_IMPORT}\n{_VARS}\n{_BODY}\n{_CHROME_BODY}</style>"
 
 
 def home_button_html(href: str = "/") -> str:
@@ -1205,17 +1161,4 @@ def home_button_html(href: str = "/") -> str:
     <path d="M10 21 L10 14 L14 14 L14 21" />
   </svg>
 </a>
-'''
-
-
-def mode_switcher_html(current: str) -> str:
-    """3가지 모드 전환 스위처 (Home 버튼 왼쪽)."""
-    def cls(key: str) -> str:
-        return "active" if key == current else ""
-    return f'''
-<div class="mode-switcher" role="tablist" aria-label="Design mode">
-  <a href="?mode=before" class="{cls('before')}" role="tab">변경 전</a>
-  <a href="?mode=a"      class="{cls('a')}"      role="tab">A · 원본</a>
-  <a href="?mode=b"      class="{cls('b')}"      role="tab">B · 오렌지</a>
-</div>
 '''
