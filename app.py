@@ -22,7 +22,7 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 
 from tech_tab import render_tech_tab
-from design_dna import css_for, home_button_html
+from design_dna import css_for
 
 ROOT = Path(__file__).parent
 DATA = ROOT / "data"
@@ -91,11 +91,6 @@ def on_scrub():
 def inject_css():
     """Design DNA CSS (mode B · orange-400/yellow-400) 주입."""
     st.markdown(css_for("b"), unsafe_allow_html=True)
-
-
-def inject_chrome():
-    """Home 버튼 (Apple squircle + rotating conic border)."""
-    st.markdown(home_button_html(href="#"), unsafe_allow_html=True)
 
 
 def inject_emoji_strip():
@@ -942,9 +937,8 @@ def main():
     init_state()
     inject_css()
     render_navbar()
-    inject_chrome()
-    inject_slider_recolor()      # A/B 모드에서 slider 오렌지 잔재를 accent 로 치환
-    inject_emoji_strip()         # B 모드에서 이모지/재생 기호 제거
+    inject_slider_recolor()      # Streamlit primaryColor 잔재를 design DNA accent 로 치환
+    inject_emoji_strip()         # 텍스트 노드에서 이모지·재생 기호 제거
 
     frames_yolo, frames_raw, stats, tracking, zone_stats, insight = load_artifacts()
     render_sidebar(len(frames_yolo))
